@@ -1,0 +1,493 @@
+// main.js — UIと人間プレイヤーの接続 (卓レイアウト版)
+import { makeRules, RULE_SCHEMA } from '../engine/rules.js';
+import { Game } from '../engine/game.js';
+import { ComActor } from '../engine/ai.js';
+import { toCounts, suitOf, numOf, tileName } from '../engine/tiles.js';
+import { shanten } from '../engine/shanten.js';
+
+const $ = (sel) => document.querySelector(sel);
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+// ============ ルール設定 ============
+function loadRulesOverrides() {
+  try { return JSON.parse(localStorage.getItem('mahjong-rules') || '{}'); } catch { return {}; }
+}
+function loadRules() { return makeRules(loadRulesOverrides()); }
+function saveRules(overrides) { localStorage.setItem('mahjong-rules', JSON.stringify(overrides)); }
+
+function renderRulesScreen() {
+  const list = $('#rules-list');
+  list.innerHTML = '';
+  const current = loadRules();
+  for (const item of RULE_SCHEMA) {
+    const row = document.createElement('div');
+    row.className = 'rule-item';
+    const label = document.createElement('label');
+    label.textContent = item.label;
+    row.appendChild(label);
+    if (item.type === 'bool') {
+      const btn = document.createElement('button');
+      const paint = () => {
+        btn.className = 'toggle' + (current[item.key] ? ' on' : '');
+        btn.textContent = current[item.key] ? 'あり' : 'なし';
+      };
+      paint();
+      btn.onclick = () => {
+        current[item.key] = !current[item.key];
+        const now = loadRulesOverrides();
+        now[item.key] = current[item.key];
+        saveRules(now);
+        paint();
+      };
+      row.appendChild(btn);
+    } else {
+      const sel = document.createElement('select');
+      for (const [val, name] of item.options) {
+        const opt = document.createElement('option');
+        opt.value = JSON.stringify(val);
+        opt.textContent = name;
+        if (JSON.stringify(current[item.key]) === JSON.stringify(val)) opt.selected = true;
+        sel.appendChild(opt);
+      }
+      sel.onchange = () => {
+        const now = loadRulesOverrides();
+        now[item.key] = JSON.parse(sel.value);
+        saveRules(now);
+      };
+      row.appendChild(sel);
+    }
+    list.appendChild(row);
+  }
+}
+
+// ============ 牌の描画 ============
+const HONOR_CHARS = ['東', '南', '西', '北', '白', '發', '中'];
+function tileEl(t, opts = {}) {
+  const el = document.createElement('div');
+  const suit = suitOf(t.kind);
+  el.className = `tile ${suit}` + (t.red ? ' red' : '') + (opts.mini ? ' mini' : '');
+  if (suit === 'z') {
+    if (t.kind === 33) el.classList.add('dragon-c');
+    if (t.kind === 32) el.classList.add('dragon-f');
+    el.innerHTML = `<span class="num">${HONOR_CHARS[t.kind - 27]}</span>`;
+  } else {
+    const suitChar = { m: '萬', p: '筒', s: '索' }[suit];
+    el.innerHTML = `<span class="num">${t.red ? '5' : numOf(t.kind)}</span><span class="suit">${suitChar}</span>`;
+  }
+  if (opts.riichi) el.classList.add('riichi-tile');
+  if (opts.tsumogiri) el.classList.add('tsumogiri');
+  return el;
+}
+function backTileEl(mini = false) {
+  const el = document.createElement('div');
+  el.className = 'tile back' + (mini ? ' mini' : '');
+  return el;
+}
+function meldEl(m, mini = false) {
+  const box = document.createElement('div');
+  box.className = 'meld' + (mini ? ' melds' : '');
+  box.style.display = 'flex';
+  box.style.gap = '1px';
+  if (m.type === 'ankan') {
+    box.appendChild(backTileEl(mini));
+    box.appendChild(tileEl(m.tiles[1], { mini }));
+    box.appendChild(tileEl(m.tiles[2], { mini }));
+    box.appendChild(backTileEl(mini));
+  } else {
+    for (const t of m.tiles) box.appendChild(tileEl(t, { mini }));
+  }
+  return box;
+}
+
+// ============ 人間アクター ============
+class HumanActor {
+  constructor(ui) { this.ui = ui; this.isHuman = true; }
+  async onTurn(view, options) {
+    if (view.riichi && !options.includes('tsumo') && !options.includes('ankan')) {
+      await sleep(550);
+      const n = view.hand.length + (view.drawn ? 1 : 0);
+      return { action: 'discard', index: n - 1, riichi: false };
+    }
+    return this.ui.promptTurn(view, options);
+  }
+  async onClaim(view, offer) { return this.ui.promptClaim(view, offer); }
+}
+
+class PacedCom extends ComActor {
+  async onTurn(view, options) { await sleep(400); return super.onTurn(view, options); }
+  async onClaim(view, offer) {
+    const ans = await super.onClaim(view, offer);
+    if (ans) await sleep(350);
+    return ans;
+  }
+}
+
+// ============ UI本体 ============
+const WIND_NAMES = ['東', '南', '西', '北'];
+const SEAT_LABELS = ['あなた', 'COM下家', 'COM対面', 'COM上家'];
+
+class UI {
+  constructor() {
+    this.myHand = [];
+    this.myDrawn = null;
+    this.game = null;
+    this.lastDiscardPlayer = -1;
+  }
+
+  startGame() {
+    const rules = loadRules();
+    this.spectate = location.search.includes('spectate'); // 開発用: 全員COMの観戦モード
+    this.human = new HumanActor(this);
+    const seat0 = this.spectate ? new PacedCom('COM') : this.human;
+    this.game = new Game(rules,
+      [seat0, new PacedCom('COM下家'), new PacedCom('COM対面'), new PacedCom('COM上家')],
+      (type, data) => this.onEvent(type, data));
+    show('game');
+    this.game.run();
+  }
+
+  // Gameがawaitするので、Promiseを返せば進行が止まる
+  onEvent(type, data) {
+    switch (type) {
+      case 'roundStart':
+        this.lastDiscardPlayer = -1;
+        this.myHand = this.game.handOf(0);
+        this.myDrawn = null;
+        this.renderBoard(data);
+        this.renderHand();
+        return this.showSplash(data);
+      case 'discard':
+        this.lastDiscardPlayer = data.player;
+        this.renderBoard(data.state);
+        if (data.riichi) this.showCallout(data.player, 'リーチ');
+        return;
+      case 'claim':
+        this.renderBoard(data.state);
+        return this.showCallout(data.player, { pon: 'ポン', chi: 'チー', minkan: 'カン' }[data.action] || data.action);
+      case 'kan':
+        this.renderBoard(data.state);
+        return this.showCallout(data.player, 'カン');
+      case 'kyuushu':
+        return this.showCallout(data.player, '九種九牌');
+      case 'draw':
+        $('#center .sub .rest') && ($('#center .sub .rest').textContent = `残 ${data.remaining}`);
+        return;
+      case 'win': return this.showWin(data);
+      case 'ryukyoku': return this.showRyukyoku(data);
+      case 'nagashi': return this.showNagashi(data);
+      case 'gameEnd': return this.showGameEnd(data);
+    }
+  }
+
+  // --- 局開始スプラッシュ ---
+  async showSplash(state) {
+    const splash = $('#splash');
+    const kyokuName = `${WIND_NAMES[state.roundWindIdx]}${state.kyoku + 1}局`;
+    splash.innerHTML = `<div><div class="splash-text">${kyokuName}</div>` +
+      `<div class="splash-sub">${state.honba > 0 ? state.honba + '本場　' : ''}親: ${SEAT_LABELS[state.kyoku]}</div></div>`;
+    splash.classList.remove('hidden');
+    await sleep(1200);
+    splash.classList.add('hidden');
+  }
+
+  // --- 吹き出し ---
+  async showCallout(player, text) {
+    const el = $('#callout');
+    el.textContent = text;
+    // 席の方向に出す (0=下,1=右,2=上,3=左)
+    const pos = [
+      { left: '50%', top: '62%', transform: 'translate(-50%,-50%)' },
+      { left: '74%', top: '42%', transform: 'translate(-50%,-50%)' },
+      { left: '50%', top: '22%', transform: 'translate(-50%,-50%)' },
+      { left: '26%', top: '42%', transform: 'translate(-50%,-50%)' },
+    ][player];
+    Object.assign(el.style, { left: pos.left, top: pos.top, transform: pos.transform });
+    el.classList.remove('hidden');
+    await sleep(750);
+    el.classList.add('hidden');
+  }
+
+  // --- 卓の描画 ---
+  renderBoard(state) {
+    if (!state) return;
+    if (this.spectate) { this.myHand = this.game.handOf(0); this.myDrawn = null; this.renderHand(); }
+
+    // 中央
+    $('#center').innerHTML =
+      `<div class="kyoku">${WIND_NAMES[state.roundWindIdx]}${state.kyoku + 1}局</div>` +
+      `<div class="sub"><span class="rest">残 ${state.remaining}</span>` +
+      `<span>${state.honba}本場</span>` +
+      `<span class="sticks">供託${state.riichiSticks}</span></div>` +
+      `<div class="dora-row"><span class="label">ドラ</span></div>`;
+    const doraRow = $('#center .dora-row');
+    for (const t of state.doraIndicators) doraRow.appendChild(tileEl(t));
+
+    // 各家: チップ(名前/点/リーチ棒/副露) + 河 + 裏手牌
+    for (let p = 0; p < 4; p++) {
+      const pl = state.players[p];
+      const seatWind = WIND_NAMES[(p - state.kyoku + 4) % 4];
+      const chip = $(`#chip-${p}`);
+      chip.className = 'chip ' + ['bl', 'br', 'tr', 'tl'][p] + (state.turn === p ? ' active' : '');
+      chip.innerHTML =
+        `<div class="who"><span class="wind${(p - state.kyoku + 4) % 4 === 0 ? ' dealer' : ''}">${seatWind}</span>${SEAT_LABELS[p]}</div>` +
+        `<div class="pts">${state.points[p]}</div>` +
+        (pl.riichi ? '<div class="riichi-stick"></div>' : '');
+      if (p !== 0 && pl.melds.length > 0) {
+        const mbox = document.createElement('div');
+        mbox.className = 'melds';
+        for (const m of pl.melds) mbox.appendChild(meldEl(m, true));
+        chip.appendChild(mbox);
+      }
+
+      // 河 (鳴かれた牌は表示から除く)
+      const river = $(`#river-${p}`);
+      river.innerHTML = '';
+      const visibles = pl.discards.filter(d => !d.claimed);
+      visibles.forEach((d, i) => {
+        const el = tileEl(d.tile, { riichi: d.riichi, tsumogiri: d.tsumogiri });
+        if (p === this.lastDiscardPlayer && i === visibles.length - 1) el.classList.add('last-discard');
+        river.appendChild(el);
+      });
+    }
+
+    // 裏向き手牌ストリップ
+    const strips = { 1: $('#strip-right'), 2: $('#strip-top'), 3: $('#strip-left') };
+    for (const [p, el] of Object.entries(strips)) {
+      el.innerHTML = '';
+      for (let i = 0; i < state.players[p].handCount; i++) {
+        const b = document.createElement('div');
+        b.className = 'btile';
+        el.appendChild(b);
+      }
+    }
+
+    // 自分の副露
+    const myMelds = $('#my-melds');
+    myMelds.innerHTML = '';
+    for (const m of state.players[0].melds) myMelds.appendChild(meldEl(m));
+  }
+
+  renderHand(selectable = false, riichiFilter = null, onPick = null) {
+    const box = $('#my-hand');
+    box.innerHTML = '';
+    const all = this.myDrawn ? [...this.myHand, this.myDrawn] : [...this.myHand];
+    all.forEach((t, i) => {
+      const el = tileEl(t);
+      if (this.myDrawn && i === all.length - 1) el.classList.add('drawn');
+      if (selectable) {
+        const allowed = !riichiFilter || riichiFilter.includes(i);
+        if (allowed) {
+          el.classList.add('selectable');
+          el.classList.toggle('riichi-ok', !!riichiFilter);
+          el.onclick = () => onPick(i);
+        } else {
+          el.classList.add('dimmed');
+        }
+      }
+      box.appendChild(el);
+    });
+  }
+
+  // --- 手番 ---
+  promptTurn(view, options) {
+    this.myHand = view.hand;
+    this.myDrawn = view.drawn;
+    const self = this;
+    return new Promise((resolve) => {
+      const bar = $('#action-bar');
+      bar.innerHTML = '';
+      let riichiMode = false;
+
+      const finish = (result) => { bar.innerHTML = ''; self.renderHand(false); resolve(result); };
+      const normalPick = () => self.renderHand(true, null, (i) => finish({ action: 'discard', index: i, riichi: false }));
+      normalPick();
+
+      if (options.includes('tsumo')) this.addBtn(bar, 'ツモ', 'danger', () => finish({ action: 'tsumo' }));
+      if (options.includes('ankan')) {
+        const all = this.myDrawn ? [...this.myHand, this.myDrawn] : [...this.myHand];
+        const counts = toCounts(all);
+        for (let k = 0; k < 34; k++) if (counts[k] === 4) {
+          this.addBtn(bar, `カン ${tileName(k)}`, '', () => finish({ action: 'ankan', kind: k }));
+        }
+      }
+      if (options.includes('kyuushu')) this.addBtn(bar, '九種九牌', 'pass', () => finish({ action: 'kyuushu' }));
+
+      if (!view.riichi && view.melds.every(m => m.type === 'ankan') && view.drawn) {
+        const all = [...this.myHand, this.myDrawn];
+        const okIdx = [];
+        for (let i = 0; i < all.length; i++) {
+          const rest = all.slice(); rest.splice(i, 1);
+          if (shanten(toCounts(rest), view.melds.length) === 0) okIdx.push(i);
+        }
+        if (okIdx.length > 0) {
+          this.addBtn(bar, 'リーチ', 'danger', function () {
+            riichiMode = !riichiMode;
+            this.classList.toggle('pass', riichiMode);
+            if (riichiMode) self.renderHand(true, okIdx, (i) => finish({ action: 'discard', index: i, riichi: true }));
+            else normalPick();
+          });
+        }
+      }
+    });
+  }
+
+  // --- 他家の打牌への反応 ---
+  promptClaim(view, offer) {
+    this.myHand = view.hand;
+    this.myDrawn = null;
+    this.renderHand(false);
+    return new Promise((resolve) => {
+      const bar = $('#action-bar');
+      bar.innerHTML = '';
+      const finish = (result) => { bar.innerHTML = ''; resolve(result); };
+      if (offer.type === 'ron') {
+        this.addBtn(bar, 'ロン', 'danger', () => finish({ action: 'ron' }));
+      } else {
+        if (offer.canPon) this.addBtn(bar, 'ポン', '', () => finish({ action: 'pon' }));
+        if (offer.canKan) this.addBtn(bar, 'カン', '', () => finish({ action: 'minkan' }));
+        if (offer.canChi) {
+          for (const set of offer.canChi) {
+            this.addBtn(bar, `チー ${set.map(k => tileName(k)).join('')}`, '', () => finish({ action: 'chi', tiles: set }));
+          }
+        }
+      }
+      this.addBtn(bar, 'スルー', 'pass', () => finish(null));
+    });
+  }
+
+  addBtn(bar, label, extraClass, onClick) {
+    const b = document.createElement('button');
+    b.className = 'act-btn ' + extraClass;
+    b.textContent = label;
+    b.onclick = function () { onClick.call(this); };
+    bar.appendChild(b);
+    return b;
+  }
+
+  // --- 結果オーバーレイ (Promiseを返して進行を止める) ---
+  showOverlayAwait(html, btnId = 'btn-next') {
+    return new Promise((resolve) => {
+      $('#overlay-content').innerHTML = html;
+      $('#overlay').classList.remove('hidden');
+      const done = () => { $('#overlay').classList.add('hidden'); resolve(); };
+      $(`#${btnId}`).onclick = done;
+      if (this.spectate) setTimeout(done, 2000); // 観戦モードは自動送り
+    });
+  }
+
+  transferHtml(points, deltas) {
+    let html = '<div class="transfer">';
+    for (let p = 0; p < 4; p++) {
+      const d = deltas[p];
+      const cls = d > 0 ? 'plus' : d < 0 ? 'minus' : 'zero';
+      const sign = d > 0 ? '+' : '';
+      html += `<div class="row"><span class="name">${SEAT_LABELS[p]}</span>` +
+              `<span class="diff ${cls}">${d === 0 ? '—' : sign + d}</span>` +
+              `<span class="now">${points[p]}</span></div>`;
+    }
+    return html + '</div>';
+  }
+
+  async showWin(data) {
+    this.renderBoard(data.state);
+    const { winner, loser, score, deltas } = data;
+    const who = SEAT_LABELS[winner];
+    const how = loser === null ? 'ツモ' : 'ロン';
+    let html = `<h2>${how}</h2><div class="win-sub">${who}${loser !== null ? `　←　${SEAT_LABELS[loser]}` : ''}</div>`;
+    html += `<div class="win-hand" id="win-hand-box"></div>`;
+    html += `<div class="dora-line" id="dora-line-box"></div>`;
+    for (const y of score.yaku) {
+      html += `<div class="yaku-line"><span>${y.name}</span><span class="han">${y.yakuman ? (y.yakuman >= 2 ? 'ダブル役満' : '役満') : y.han + '翻'}</span></div>`;
+    }
+    if (score.limitName) html += `<div class="limit-name">${score.limitName}</div>`;
+    html += `<div class="score-total">${score.total}点</div>`;
+    if (!score.yakumanCount) html += `<div class="fu-han">${score.fu}符 ${score.han}翻</div>`;
+    html += this.transferHtml(data.state.points, deltas);
+    html += `<button class="btn primary big" id="btn-next">次へ</button>`;
+
+    const done = this.showOverlayAwait(html);
+    // 手牌+和了牌
+    const handBox = $('#win-hand-box');
+    const tiles = [...data.hand].sort((a, b) => a.kind - b.kind);
+    for (const t of tiles) handBox.appendChild(tileEl(t));
+    for (const m of data.melds) { const gap = document.createElement('span'); gap.style.width = '8px'; handBox.appendChild(gap); handBox.appendChild(meldEl(m)); }
+    if (data.winTile) {
+      const wt = document.createElement('div');
+      wt.className = 'win-tile-box';
+      wt.innerHTML = `<span class="lbl">${how}</span>`;
+      wt.appendChild(tileEl(data.winTile));
+      handBox.appendChild(wt);
+    }
+    // ドラ表示
+    const dl = $('#dora-line-box');
+    dl.insertAdjacentHTML('beforeend', '<span class="lbl">ドラ表示</span>');
+    for (const t of data.doraInd || []) dl.appendChild(tileEl(t));
+    if ((data.uraInd || []).length > 0) {
+      dl.insertAdjacentHTML('beforeend', '<span class="lbl" style="margin-left:8px">裏</span>');
+      for (const t of data.uraInd) dl.appendChild(tileEl(t));
+    }
+    await done;
+  }
+
+  async showRyukyoku(data) {
+    this.renderBoard(data.state);
+    let html = `<h2>流局</h2>`;
+    if (data.tochu) html += `<div class="win-sub">途中流局</div>`;
+    else if (data.tenpai.length === 0) html += `<div class="win-sub">全員ノーテン</div>`;
+    else html += `<div class="win-sub">聴牌: ${data.tenpai.map(p => SEAT_LABELS[p]).join('、')}</div>`;
+    if ((data.revealed || []).length > 0) {
+      html += '<div class="reveal" id="reveal-box"></div>';
+    }
+    html += this.transferHtml(data.state.points, data.deltas);
+    html += `<button class="btn primary big" id="btn-next">次へ</button>`;
+    const done = this.showOverlayAwait(html);
+    const rv = $('#reveal-box');
+    if (rv) {
+      for (const r of data.revealed) {
+        const row = document.createElement('div');
+        row.className = 'rv-row';
+        row.innerHTML = `<span class="nm">${SEAT_LABELS[r.player]}</span>`;
+        for (const t of [...r.hand].sort((a, b) => a.kind - b.kind)) row.appendChild(tileEl(t));
+        for (const m of r.melds || []) row.appendChild(meldEl(m, true));
+        rv.appendChild(row);
+      }
+    }
+    await done;
+  }
+
+  async showNagashi(data) {
+    let html = `<h2>流し満貫</h2><div class="win-sub">${SEAT_LABELS[data.player]}</div>`;
+    html += this.transferHtml(data.state.points, data.deltas);
+    html += `<button class="btn primary big" id="btn-next">次へ</button>`;
+    await this.showOverlayAwait(html);
+  }
+
+  async showGameEnd(data) {
+    const rules = loadRules();
+    let html = `<h2>終局</h2>`;
+    data.ranking.forEach((p, rank) => {
+      const uma = rules.uma[rank] * 1000;
+      const oka = rank === 0 ? (rules.returnPoints - rules.startPoints) * 4 : 0;
+      const finalPt = data.points[p] - rules.returnPoints + uma + oka;
+      html += `<div class="rank-line"><span>${rank + 1}位 ${SEAT_LABELS[p]}</span>` +
+              `<span class="pt">${data.points[p]}点 (${finalPt >= 0 ? '+' : ''}${Math.round(finalPt / 1000)})</span></div>`;
+    });
+    html += `<button class="btn primary big" id="btn-title">タイトルへ</button>`;
+    await this.showOverlayAwait(html, 'btn-title');
+    show('title');
+  }
+}
+
+// ============ 画面遷移 ============
+function show(name) {
+  for (const s of ['title', 'rules', 'game']) $(`#screen-${s}`).classList.toggle('hidden', s !== name);
+}
+
+const uiInstance = new UI();
+$('#btn-start').onclick = () => uiInstance.startGame();
+$('#btn-rules').onclick = () => { renderRulesScreen(); show('rules'); };
+$('#btn-rules-done').onclick = () => show('title');
+show('title');
+
+// 開発用: ?autostart で即対局開始(スクリーンショット検品用)
+if (location.search.includes('autostart')) uiInstance.startGame();

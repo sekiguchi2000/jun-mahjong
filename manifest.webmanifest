@@ -1,0 +1,14 @@
+{
+  "name": "純麻雀",
+  "short_name": "純麻雀",
+  "description": "牌操作なし・COM不正なしの純粋な四人打ち麻雀",
+  "start_url": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b3d2e",
+  "theme_color": "#0b3d2e",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

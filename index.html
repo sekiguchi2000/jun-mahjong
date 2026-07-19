@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0b3d2e">
+<title>純麻雀</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/style.css?v=3">
+</head>
+<body>
+<div id="app">
+
+  <!-- タイトル/設定画面 -->
+  <div id="screen-title" class="screen">
+    <div class="title-box">
+      <h1>純麻雀</h1>
+      <p class="subtitle">牌操作なし・COM不正なしの、ただの麻雀。</p>
+      <button id="btn-start" class="btn primary big">対局開始</button>
+      <button id="btn-rules" class="btn big">ルール設定</button>
+      <p class="note">シャッフルは暗号乱数のみ。COMは自分の手牌と河しか見ません。</p>
+    </div>
+  </div>
+
+  <!-- ルール設定画面 -->
+  <div id="screen-rules" class="screen hidden">
+    <div class="rules-box">
+      <h2>ルール設定</h2>
+      <div id="rules-list"></div>
+      <button id="btn-rules-done" class="btn primary big">保存して戻る</button>
+    </div>
+  </div>
+
+  <!-- 対局画面 -->
+  <div id="screen-game" class="screen hidden">
+    <div id="board">
+      <div id="strip-top" class="back-strip horizontal"></div>
+      <div id="table-wrap">
+        <div id="strip-left" class="back-strip vertical"></div>
+        <div id="strip-right" class="back-strip vertical"></div>
+        <div id="table">
+          <div class="chip tl" id="chip-3"></div>
+          <div class="river-cell top"><div class="river" id="river-2"></div></div>
+          <div class="chip tr" id="chip-2"></div>
+          <div class="river-cell left"><div class="river" id="river-3"></div></div>
+          <div id="center"></div>
+          <div class="river-cell right"><div class="river" id="river-1"></div></div>
+          <div class="chip bl" id="chip-0"></div>
+          <div class="river-cell bottom"><div class="river" id="river-0"></div></div>
+          <div class="chip br" id="chip-1"></div>
+        </div>
+      </div>
+      <div id="my-area">
+        <div id="my-melds"></div>
+        <div id="my-hand"></div>
+        <div id="action-bar"></div>
+      </div>
+    </div>
+    <div id="callout" class="hidden"></div>
+    <div id="splash" class="hidden"></div>
+    <div id="overlay" class="hidden">
+      <div id="overlay-content"></div>
+    </div>
+  </div>
+
+</div>
+<script type="module" src="js/ui/main.js?v=3"></script>
+<script>
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  navigator.serviceWorker.register('sw.js');
+}
+</script>
+</body>
+</html>
