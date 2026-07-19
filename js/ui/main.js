@@ -2,7 +2,8 @@
 import { makeRules, RULE_SCHEMA } from '../engine/rules.js';
 import { Game } from '../engine/game.js';
 import { ComActor } from '../engine/ai.js';
-import { toCounts, suitOf, numOf, tileName } from '../engine/tiles.js';
+import { toCounts, suitOf, tileName } from '../engine/tiles.js';
+import { svgFace } from './tilesvg.js';
 import { shanten, waitingTiles } from '../engine/shanten.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -60,20 +61,11 @@ function renderRulesScreen() {
   }
 }
 
-// ============ 牌の描画 ============
-const HONOR_CHARS = ['東', '南', '西', '北', '白', '發', '中'];
+// ============ 牌の描画 (本格SVG牌面) ============
 function tileEl(t, opts = {}) {
   const el = document.createElement('div');
-  const suit = suitOf(t.kind);
-  el.className = `tile ${suit}` + (t.red ? ' red' : '') + (opts.mini ? ' mini' : '');
-  if (suit === 'z') {
-    if (t.kind === 33) el.classList.add('dragon-c');
-    if (t.kind === 32) el.classList.add('dragon-f');
-    el.innerHTML = `<span class="num">${HONOR_CHARS[t.kind - 27]}</span>`;
-  } else {
-    const suitChar = { m: '萬', p: '筒', s: '索' }[suit];
-    el.innerHTML = `<span class="num">${t.red ? '5' : numOf(t.kind)}</span><span class="suit">${suitChar}</span>`;
-  }
+  el.className = `tile ${suitOf(t.kind)}` + (t.red ? ' red' : '') + (opts.mini ? ' mini' : '');
+  el.innerHTML = svgFace(t.kind, t.red);
   if (opts.riichi) el.classList.add('riichi-tile');
   if (opts.tsumogiri) el.classList.add('tsumogiri');
   return el;

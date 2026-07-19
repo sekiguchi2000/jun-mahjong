@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<style>
+body { background: #0f4a37; padding: 16px; font-family: sans-serif; }
+.row { display: flex; gap: 6px; margin-bottom: 10px; }
+.tile {
+  width: 52px; height: 71px; border-radius: 7px;
+  background: linear-gradient(180deg, #fdfdf6 0%, #f0eee2 80%, #d8d5c4 100%);
+  border: 1px solid #b9b5a0; border-bottom-width: 4px;
+  box-shadow: 0 2px 4px rgba(0,0,0,.4);
+  display: flex; align-items: center; justify-content: center;
+}
+.tile svg { width: 90%; height: 92%; }
+h3 { color: #ffe9a8; margin: 4px 0; font-size: 14px; }
+</style>
+</head>
+<body>
+<div id="out"></div>
+<script type="module">
+import { svgFace } from '../js/ui/tilesvg.js';
+const out = document.getElementById('out');
+const rows = [
+  ['萬子', [...Array(9)].map((_, i) => [i, false])],
+  ['筒子', [...Array(9)].map((_, i) => [9 + i, false])],
+  ['索子', [...Array(9)].map((_, i) => [18 + i, false])],
+  ['字牌', [...Array(7)].map((_, i) => [27 + i, false])],
+  ['赤5', [[4, true], [13, true], [22, true]]],
+];
+for (const [label, tiles] of rows) {
+  const h = document.createElement('h3');
+  h.textContent = label;
+  out.appendChild(h);
+  const row = document.createElement('div');
+  row.className = 'row';
+  for (const [kind, red] of tiles) {
+    const d = document.createElement('div');
+    d.className = 'tile';
+    d.innerHTML = svgFace(kind, red);
+    row.appendChild(d);
+  }
+  out.appendChild(row);
+}
+</script>
+</body>
+</html>

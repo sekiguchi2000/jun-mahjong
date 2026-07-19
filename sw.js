@@ -1,8 +1,8 @@
 // sw.js — オフライン対応 (HTTPSで配信されたときのみ登録される)
-const CACHE = 'jun-mahjong-v4';
+const CACHE = 'jun-mahjong-v5';
 const ASSETS = [
   '.', 'index.html', 'css/style.css', 'manifest.webmanifest',
-  'js/ui/main.js',
+  'js/ui/main.js', 'js/ui/tilesvg.js',
   'js/engine/rules.js', 'js/engine/tiles.js', 'js/engine/wall.js',
   'js/engine/agari.js', 'js/engine/shanten.js', 'js/engine/yaku.js',
   'js/engine/score.js', 'js/engine/game.js', 'js/engine/ai.js',

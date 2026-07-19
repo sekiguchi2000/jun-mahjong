@@ -147,18 +147,10 @@ body {
   font-size: 17px; line-height: 1; position: relative;
   box-shadow: 0 1px 3px rgba(0,0,0,.4);
 }
-.tile .num { font-size: 1.05em; }
-.tile .suit { font-size: .6em; margin-top: 1px; }
-.tile.m .num { color: #b0322c; }
-.tile.p .num { color: #1e4f9c; }
-.tile.s .num { color: #1d7a3c; }
-.tile.z { color: #223; }
-.tile.z.dragon-c { color: #b0322c; }
-.tile.z.dragon-f { color: #1d7a3c; }
-.tile.red .num { color: #e00000 !important; text-shadow: 0 0 4px rgba(224,0,0,.35); }
+.tile svg { width: 94%; height: 92%; display: block; pointer-events: none; }
 .tile.back { background: linear-gradient(180deg, #2c6ba0, #1b4468); border-color: #123049; }
-.tile.mini { width: calc(14 * var(--k)); height: calc(19 * var(--k)); font-size: calc(9 * var(--k)); border-radius: calc(2 * var(--k)); border-bottom-width: 1px; }
-.tile.mini .suit { display: none; }
+.tile.back svg { display: none; }
+.tile.mini { width: calc(15 * var(--k)); height: calc(20 * var(--k)); border-radius: calc(2 * var(--k)); border-bottom-width: 1px; }
 
 /* --- 横向き牌(鳴いた牌の出どころ表示) --- */
 .tile.sideways { transform: rotate(90deg); margin: 0 calc(4 * var(--k)); }
