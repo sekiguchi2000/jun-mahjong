@@ -3,7 +3,7 @@ import { makeRules, RULE_SCHEMA } from '../engine/rules.js';
 import { Game } from '../engine/game.js';
 import { ComActor } from '../engine/ai.js';
 import { toCounts, suitOf, numOf, tileName } from '../engine/tiles.js';
-import { shanten } from '../engine/shanten.js';
+import { shanten, waitingTiles } from '../engine/shanten.js';
 
 const $ = (sel) => document.querySelector(sel);
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -83,18 +83,34 @@ function backTileEl(mini = false) {
   el.className = 'tile back' + (mini ? ' mini' : '');
   return el;
 }
-function meldEl(m, mini = false) {
+// 副露の表示: 鳴いた牌を「誰から鳴いたか」の方向に横向きで置く
+// (上家から=左端 / 対面から=2枚目 / 下家から=右端)
+function meldEl(m, mini = false, owner = null) {
   const box = document.createElement('div');
-  box.className = 'meld' + (mini ? ' melds' : '');
+  box.className = 'meld';
   box.style.display = 'flex';
   box.style.gap = '1px';
+  box.style.alignItems = 'center';
   if (m.type === 'ankan') {
     box.appendChild(backTileEl(mini));
     box.appendChild(tileEl(m.tiles[1], { mini }));
     box.appendChild(tileEl(m.tiles[2], { mini }));
     box.appendChild(backTileEl(mini));
-  } else {
-    for (const t of m.tiles) box.appendChild(tileEl(t, { mini }));
+    return box;
+  }
+  const tiles = m.tiles.slice();
+  const claimed = tiles.pop(); // 末尾が他家から鳴いた牌
+  tiles.sort((a, b) => a.kind - b.kind);
+  let pos = 0;
+  if (owner !== null && m.from !== undefined) {
+    const rel = (m.from - owner + 4) % 4; // 1=下家 2=対面 3=上家
+    pos = rel === 3 ? 0 : rel === 2 ? 1 : tiles.length;
+  }
+  const seq = [...tiles.slice(0, pos), { ...claimed, __side: true }, ...tiles.slice(pos)];
+  for (const t of seq) {
+    const el = tileEl(t, { mini });
+    if (t.__side) el.classList.add('sideways');
+    box.appendChild(el);
   }
   return box;
 }
@@ -104,9 +120,8 @@ class HumanActor {
   constructor(ui) { this.ui = ui; this.isHuman = true; }
   async onTurn(view, options) {
     if (view.riichi && !options.includes('tsumo') && !options.includes('ankan')) {
-      await sleep(550);
-      const n = view.hand.length + (view.drawn ? 1 : 0);
-      return { action: 'discard', index: n - 1, riichi: false };
+      // リーチ中: ツモ牌を一拍見せてからツモ切り(いきなり河に飛ばない)
+      return this.ui.riichiAutoTurn(view);
     }
     return this.ui.promptTurn(view, options);
   }
@@ -204,6 +219,52 @@ class UI {
     for (let p = 0; p < 4; p++) $(`#chip-${p}`).classList.toggle('active', p === player);
   }
 
+  // --- リーチ中の自動ツモ切り(演出付き) ---
+  async riichiAutoTurn(view) {
+    this.myHand = view.hand;
+    this.myDrawn = view.drawn;
+    this.renderHand(false);
+    this.showWaits(view.hand, view.melds.length); // 待ち牌は常時表示
+    await sleep(700);
+    this.myHand = [...view.hand];
+    this.myDrawn = null;
+    this.renderHand(false);
+    return { action: 'discard', index: view.hand.length, riichi: false };
+  }
+
+  // --- 待ち牌ヒント ---
+  showWaits(hand13, meldCount) {
+    const waits = waitingTiles(toCounts(hand13), meldCount);
+    const hint = $('#wait-hint');
+    if (waits.length === 0) { hint.classList.add('hidden'); return; }
+    hint.innerHTML = '<span class="lbl">待ち</span>';
+    const visible = this.visibleCountsUI();
+    for (const k of waits) {
+      hint.appendChild(tileEl({ kind: k, red: false }, { mini: true }));
+      const n = Math.max(0, 4 - (visible[k] || 0));
+      hint.insertAdjacentHTML('beforeend', `<span class="cnt">${n}</span>`);
+    }
+    hint.classList.remove('hidden');
+  }
+  hideWaits() { $('#wait-hint').classList.add('hidden'); }
+
+  // UIから見えている牌の枚数(自分の手牌+ツモ+全員の河/副露+ドラ表示牌)
+  visibleCountsUI() {
+    const c = {};
+    const add = (t) => { c[t.kind] = (c[t.kind] || 0) + 1; };
+    for (const t of this.myHand) add(t);
+    if (this.myDrawn) add(this.myDrawn);
+    const st = this.lastState;
+    if (st) {
+      for (const pl of st.players) {
+        for (const d of pl.discards) add(d.tile);
+        for (const m of pl.melds) for (const t of m.tiles) add(t);
+      }
+      for (const t of st.doraIndicators) add(t);
+    }
+    return c;
+  }
+
   // --- 吹き出し ---
   async showCallout(player, text, ms = 750) {
     const el = $('#callout');
@@ -224,6 +285,7 @@ class UI {
   // --- 卓の描画 ---
   renderBoard(state) {
     if (!state) return;
+    this.lastState = state;
     if (this.spectate) { this.myHand = this.game.handOf(0); this.myDrawn = null; this.renderHand(); }
 
     // 中央
@@ -249,7 +311,7 @@ class UI {
       if (p !== 0 && pl.melds.length > 0) {
         const mbox = document.createElement('div');
         mbox.className = 'melds';
-        for (const m of pl.melds) mbox.appendChild(meldEl(m, true));
+        for (const m of pl.melds) mbox.appendChild(meldEl(m, true, p));
         chip.appendChild(mbox);
       }
 
@@ -278,11 +340,11 @@ class UI {
     // 自分の副露
     const myMelds = $('#my-melds');
     myMelds.innerHTML = '';
-    for (const m of state.players[0].melds) myMelds.appendChild(meldEl(m));
+    for (const m of state.players[0].melds) myMelds.appendChild(meldEl(m, false, 0));
   }
 
   // 打牌は二段タッチ: 1タッチ目で牌が浮き、同じ牌への2タッチ目で確定。別の牌を触ると浮きが移る
-  renderHand(selectable = false, riichiFilter = null, onPick = null) {
+  renderHand(selectable = false, riichiFilter = null, onPick = null, onLift = null) {
     const box = $('#my-hand');
     box.innerHTML = '';
     let lifted = -1;
@@ -302,6 +364,7 @@ class UI {
             if (lifted >= 0) els[lifted].classList.remove('lifted');
             lifted = i;
             el.classList.add('lifted');                 // 1タッチ目 → 浮かせる
+            if (onLift) onLift(i);
           };
         } else {
           el.classList.add('dimmed');
@@ -321,19 +384,28 @@ class UI {
       bar.innerHTML = '';
       let riichiMode = false;
 
-      // 打牌確定と同時に手牌から即座に消す(エンジンの反映を待たない)
+      // 打牌確定と同時に手牌から即座に消してリー牌(ソート)する(エンジンの反映を待たない)
       const finish = (result) => {
         bar.innerHTML = '';
+        self.hideWaits();
         if (result.action === 'discard') {
           const all = self.myDrawn ? [...self.myHand, self.myDrawn] : [...self.myHand];
           all.splice(result.index, 1);
+          all.sort((a, b) => a.kind - b.kind || (a.red ? 1 : 0) - (b.red ? 1 : 0));
           self.myHand = all;
           self.myDrawn = null;
         }
         self.renderHand(false);
         resolve(result);
       };
-      const normalPick = () => self.renderHand(true, null, (i) => finish({ action: 'discard', index: i, riichi: false }));
+      // 牌を浮かせたとき: その牌を切ると聴牌なら待ち牌を表示
+      const onLift = (i) => {
+        const all = self.myDrawn ? [...self.myHand, self.myDrawn] : [...self.myHand];
+        all.splice(i, 1);
+        if (shanten(toCounts(all), view.melds.length) === 0) self.showWaits(all, view.melds.length);
+        else self.hideWaits();
+      };
+      const normalPick = () => self.renderHand(true, null, (i) => finish({ action: 'discard', index: i, riichi: false }), onLift);
       normalPick();
 
       if (options.includes('tsumo')) this.addBtn(bar, 'ツモ', 'danger', () => finish({ action: 'tsumo' }));
@@ -357,7 +429,7 @@ class UI {
           this.addBtn(bar, 'リーチ', 'danger', function () {
             riichiMode = !riichiMode;
             this.classList.toggle('pass', riichiMode);
-            if (riichiMode) self.renderHand(true, okIdx, (i) => finish({ action: 'discard', index: i, riichi: true }));
+            if (riichiMode) self.renderHand(true, okIdx, (i) => finish({ action: 'discard', index: i, riichi: true }), onLift);
             else normalPick();
           });
         }
@@ -365,28 +437,57 @@ class UI {
     });
   }
 
-  // --- 他家の打牌への反応 ---
+  // --- 他家の打牌への反応 (鳴きボタンは牌の絵で示す) ---
   promptClaim(view, offer) {
     this.myHand = view.hand;
     this.myDrawn = null;
     this.renderHand(false);
+    this.hideWaits();
     return new Promise((resolve) => {
       const bar = $('#action-bar');
       bar.innerHTML = '';
       const finish = (result) => { bar.innerHTML = ''; resolve(result); };
+      const t = offer.tile;
       if (offer.type === 'ron') {
         this.addBtn(bar, 'ロン', 'danger', () => finish({ action: 'ron' }));
       } else {
-        if (offer.canPon) this.addBtn(bar, 'ポン', '', () => finish({ action: 'pon' }));
-        if (offer.canKan) this.addBtn(bar, 'カン', '', () => finish({ action: 'minkan' }));
+        if (offer.canPon) {
+          this.addTileBtn(bar, 'ポン', [t, t, t], 1, () => finish({ action: 'pon' }));
+        }
+        if (offer.canKan) {
+          this.addTileBtn(bar, 'カン', [t, t, t, t], 1, () => finish({ action: 'minkan' }));
+        }
         if (offer.canChi) {
           for (const set of offer.canChi) {
-            this.addBtn(bar, `チー ${set.map(k => tileName(k)).join('')}`, '', () => finish({ action: 'chi', tiles: set }));
+            const seq = [...set.map(k => ({ kind: k, red: false })), { ...t }].sort((a, b) => a.kind - b.kind);
+            const sideIdx = seq.findIndex(x => x.kind === t.kind);
+            this.addTileBtn(bar, 'チー', seq, sideIdx, () => finish({ action: 'chi', tiles: set }));
           }
         }
       }
       this.addBtn(bar, 'スルー', 'pass', () => finish(null));
     });
+  }
+
+  // 牌の絵入りボタン。sideIdxの牌(=鳴く対象の牌)を強調表示
+  addTileBtn(bar, label, tiles, sideIdx, onClick) {
+    const b = document.createElement('button');
+    b.className = 'act-btn tile-btn';
+    const lab = document.createElement('span');
+    lab.className = 'tb-label';
+    lab.textContent = label;
+    b.appendChild(lab);
+    const row = document.createElement('span');
+    row.className = 'tb-tiles';
+    tiles.forEach((t, i) => {
+      const el = tileEl(t, { mini: true });
+      if (i === sideIdx) el.classList.add('claim-target');
+      row.appendChild(el);
+    });
+    b.appendChild(row);
+    b.onclick = () => onClick();
+    bar.appendChild(b);
+    return b;
   }
 
   addBtn(bar, label, extraClass, onClick) {
@@ -422,11 +523,24 @@ class UI {
     return html + '</div>';
   }
 
+  // 和了カットイン: 結果画面の前に一呼吸の演出
+  async showCutin(text, sub, cls) {
+    const el = $('#cutin');
+    el.innerHTML = `<div class="cutin-band ${cls}"><div class="big">${text}</div>` +
+      (sub ? `<div class="who">${sub}</div>` : '') + '</div>';
+    el.classList.remove('hidden');
+    await sleep(1400);
+    el.classList.add('hidden');
+  }
+
   async showWin(data) {
     this.renderBoard(data.state);
+    this.hideWaits();
     const { winner, loser, score, deltas } = data;
     const who = SEAT_LABELS[winner];
     const how = loser === null ? 'ツモ' : 'ロン';
+    await this.showCutin(`${how}！`, winner === 0 ? null : who, loser === null ? 'cut-tsumo' : 'cut-ron');
+    if (score.yakumanCount > 0) await this.showCutin('役　満', null, 'cut-yakuman');
     let html = `<h2>${how}</h2><div class="win-sub">${who}${loser !== null ? `　←　${SEAT_LABELS[loser]}` : ''}</div>`;
     html += `<div class="win-hand" id="win-hand-box"></div>`;
     html += `<div class="dora-line" id="dora-line-box"></div>`;
@@ -444,7 +558,7 @@ class UI {
     const handBox = $('#win-hand-box');
     const tiles = [...data.hand].sort((a, b) => a.kind - b.kind);
     for (const t of tiles) handBox.appendChild(tileEl(t));
-    for (const m of data.melds) { const gap = document.createElement('span'); gap.style.width = '8px'; handBox.appendChild(gap); handBox.appendChild(meldEl(m)); }
+    for (const m of data.melds) { const gap = document.createElement('span'); gap.style.width = '8px'; handBox.appendChild(gap); handBox.appendChild(meldEl(m, false, data.winner)); }
     if (data.winTile) {
       const wt = document.createElement('div');
       wt.className = 'win-tile-box';
@@ -482,7 +596,7 @@ class UI {
         row.className = 'rv-row';
         row.innerHTML = `<span class="nm">${SEAT_LABELS[r.player]}</span>`;
         for (const t of [...r.hand].sort((a, b) => a.kind - b.kind)) row.appendChild(tileEl(t));
-        for (const m of r.melds || []) row.appendChild(meldEl(m, true));
+        for (const m of r.melds || []) row.appendChild(meldEl(m, true, r.player));
         rv.appendChild(row);
       }
     }

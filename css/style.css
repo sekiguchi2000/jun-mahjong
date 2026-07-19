@@ -160,14 +160,52 @@ body {
 .tile.mini { width: calc(14 * var(--k)); height: calc(19 * var(--k)); font-size: calc(9 * var(--k)); border-radius: calc(2 * var(--k)); border-bottom-width: 1px; }
 .tile.mini .suit { display: none; }
 
+/* --- 横向き牌(鳴いた牌の出どころ表示) --- */
+.tile.sideways { transform: rotate(90deg); margin: 0 calc(4 * var(--k)); }
+
+/* --- 待ち牌ヒント --- */
+#wait-hint {
+  display: flex; align-items: center; justify-content: center; gap: calc(3 * var(--k));
+  padding: calc(3 * var(--k)); margin: 0 auto calc(2 * var(--k));
+  width: fit-content; border-radius: calc(8 * var(--k));
+  background: rgba(0,0,0,.45); border: 1px solid rgba(212,175,55,.5);
+}
+#wait-hint .lbl { font-size: calc(11 * var(--k)); color: #ffe9a8; margin-right: calc(3 * var(--k)); }
+#wait-hint .cnt { font-size: calc(9 * var(--k)); color: #9cc4b4; margin-right: calc(4 * var(--k)); }
+
+/* --- 和了カットイン --- */
+#cutin { position: fixed; inset: 0; z-index: 75; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.cutin-band {
+  width: 120%; padding: calc(20 * var(--k)) 0; text-align: center;
+  transform: rotate(-4deg); animation: cutin-slide .32s cubic-bezier(.2,.9,.3,1.2);
+  box-shadow: 0 0 calc(60 * var(--k)) rgba(0,0,0,.6);
+}
+.cutin-band.cut-ron { background: linear-gradient(90deg, transparent, rgba(160,24,18,.95) 18% 82%, transparent); }
+.cutin-band.cut-tsumo { background: linear-gradient(90deg, transparent, rgba(150,110,10,.95) 18% 82%, transparent); }
+.cutin-band.cut-yakuman { background: linear-gradient(90deg, transparent, rgba(90,20,120,.95) 18% 82%, transparent); }
+.cutin-band .big {
+  font-size: calc(52 * var(--k)); font-weight: bold; color: #fff;
+  letter-spacing: calc(14 * var(--k)); text-indent: calc(14 * var(--k));
+  text-shadow: 0 0 calc(24 * var(--k)) rgba(255,220,120,.9), 0 calc(3 * var(--k)) calc(6 * var(--k)) rgba(0,0,0,.7);
+}
+.cutin-band .who { font-size: calc(17 * var(--k)); color: #ffe9a8; margin-top: calc(4 * var(--k)); letter-spacing: calc(4 * var(--k)); }
+@keyframes cutin-slide { from { transform: translateX(-45%) rotate(-4deg); opacity: 0; } to { transform: translateX(0) rotate(-4deg); opacity: 1; } }
+
+/* --- 牌の絵入りボタン(ポン/チー/カン) --- */
+.act-btn.tile-btn { display: flex; flex-direction: column; align-items: center; gap: calc(3 * var(--k)); padding: calc(6 * var(--k)) calc(14 * var(--k)); }
+.act-btn.tile-btn .tb-label { font-size: calc(14 * var(--k)); }
+.act-btn.tile-btn .tb-tiles { display: flex; gap: 1px; }
+.act-btn.tile-btn .tile.claim-target { outline: calc(2 * var(--k)) solid #b0322c; outline-offset: calc(-1 * var(--k)); }
+
 /* --- 自分エリア --- */
 #my-area { width: 100%; padding: calc(2 * var(--k)) calc(2 * var(--k)) 0; }
 #my-melds { display: flex; gap: calc(8 * var(--k)); justify-content: flex-end; min-height: calc(24 * var(--k)); padding: 0 calc(6 * var(--k)); }
 #my-melds .meld { display: flex; gap: 1px; }
 #my-melds .tile { width: calc(24 * var(--k)); height: calc(32 * var(--k)); font-size: calc(13 * var(--k)); }
 #my-hand {
-  display: flex; gap: calc(2 * var(--k)); padding: calc(5 * var(--k)) 2px; align-items: flex-end;
-  justify-content: center; flex-wrap: nowrap; overflow-x: auto;
+  display: flex; gap: calc(2 * var(--k)); align-items: flex-end;
+  justify-content: center; flex-wrap: nowrap; overflow: visible;
+  padding: calc(16 * var(--k)) 2px calc(5 * var(--k)); /* 上余白=浮かせた牌が切れないため */
 }
 #my-hand .tile {
   flex-shrink: 0;

@@ -1,5 +1,5 @@
 // sw.js — オフライン対応 (HTTPSで配信されたときのみ登録される)
-const CACHE = 'jun-mahjong-v3';
+const CACHE = 'jun-mahjong-v4';
 const ASSETS = [
   '.', 'index.html', 'css/style.css', 'manifest.webmanifest',
   'js/ui/main.js',

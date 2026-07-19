@@ -216,9 +216,9 @@ export class Game {
           }
           q.melds.push({ type: 'chi', tiles: [...taken, curTile], from: curDiscarder });
         }
-        await this.onEvent('claim', { player: curClaim.player, action: curClaim.action, tile: curTile, state: this.publicState() });
-        st.turn = curClaim.player;
+        st.turn = curClaim.player; // イベント通知前に手番を移す(表示が旧手番のままになるのを防ぐ)
         st.turnCount++;
+        await this.onEvent('claim', { player: curClaim.player, action: curClaim.action, tile: curTile, state: this.publicState() });
         if (curClaim.action === 'minkan') {
           st.kanCount++;
           pendingRinshan = true;
@@ -471,7 +471,7 @@ export class Game {
       doraIndicators: doraIndicators(st.deadWall, st.kanCount).map(t => ({ ...t })),
       players: st.players.map(pl => ({
         discards: pl.discards.map(d => ({ tile: { ...d.tile }, riichi: d.riichi, tsumogiri: !!d.tsumogiri, claimed: !!d.claimed })),
-        melds: pl.melds.map(m => ({ type: m.type, tiles: m.tiles.map(t => ({ ...t })) })),
+        melds: pl.melds.map(m => ({ type: m.type, from: m.from, tiles: m.tiles.map(t => ({ ...t })) })),
         riichi: pl.riichi,
         handCount: pl.hand.length,
       })),

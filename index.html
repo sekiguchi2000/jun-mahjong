@@ -9,7 +9,7 @@
 <title>純麻雀</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="css/style.css?v=4">
+<link rel="stylesheet" href="css/style.css?v=5">
 </head>
 <body>
 <div id="app">
@@ -54,12 +54,14 @@
         </div>
       </div>
       <div id="my-area">
+        <div id="wait-hint" class="hidden"></div>
         <div id="my-melds"></div>
         <div id="my-hand"></div>
         <div id="action-bar"></div>
       </div>
     </div>
     <div id="callout" class="hidden"></div>
+    <div id="cutin" class="hidden"></div>
     <div id="splash" class="hidden"></div>
     <div id="overlay" class="hidden">
       <div id="overlay-content"></div>
@@ -67,7 +69,7 @@
   </div>
 
 </div>
-<script type="module" src="js/ui/main.js?v=4"></script>
+<script type="module" src="js/ui/main.js?v=5"></script>
 <script>
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   navigator.serviceWorker.register('sw.js');
