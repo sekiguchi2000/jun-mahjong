@@ -114,17 +114,18 @@ class HumanActor {
 }
 
 class PacedCom extends ComActor {
-  async onTurn(view, options) { await sleep(400); return super.onTurn(view, options); }
+  // 「ツモってきて、考えて、捨てる」の間: 約1秒(ゆらぎ付き)
+  async onTurn(view, options) { await sleep(850 + Math.random() * 450); return super.onTurn(view, options); }
   async onClaim(view, offer) {
     const ans = await super.onClaim(view, offer);
-    if (ans) await sleep(350);
+    if (ans) await sleep(500);
     return ans;
   }
 }
 
 // ============ UI本体 ============
 const WIND_NAMES = ['東', '南', '西', '北'];
-const SEAT_LABELS = ['あなた', 'COM下家', 'COM対面', 'COM上家'];
+const SEAT_LABELS = ['あなた', '半蔵', 'ジョー', 'ひめ子'];
 
 class UI {
   constructor() {
@@ -140,7 +141,7 @@ class UI {
     this.human = new HumanActor(this);
     const seat0 = this.spectate ? new PacedCom('COM') : this.human;
     this.game = new Game(rules,
-      [seat0, new PacedCom('COM下家'), new PacedCom('COM対面'), new PacedCom('COM上家')],
+      [seat0, new PacedCom('半蔵'), new PacedCom('ジョー'), new PacedCom('ひめ子')],
       (type, data) => this.onEvent(type, data));
     show('game');
     this.game.run();
@@ -162,14 +163,23 @@ class UI {
         if (data.riichi) this.showCallout(data.player, 'リーチ');
         return;
       case 'claim':
-        this.renderBoard(data.state);
-        return this.showCallout(data.player, { pon: 'ポン', chi: 'チー', minkan: 'カン' }[data.action] || data.action);
+        // 発声→間→卓に反映、の順で「何が起きたか」を見せる
+        return (async () => {
+          await this.showCallout(data.player, { pon: 'ポン', chi: 'チー', minkan: 'カン' }[data.action] || data.action, 1000);
+          this.renderBoard(data.state);
+          await sleep(450);
+        })();
       case 'kan':
-        this.renderBoard(data.state);
-        return this.showCallout(data.player, 'カン');
+        return (async () => {
+          await this.showCallout(data.player, 'カン', 1000);
+          this.renderBoard(data.state);
+          await sleep(450);
+        })();
       case 'kyuushu':
         return this.showCallout(data.player, '九種九牌');
       case 'draw':
+        // ツモった本人に手番表示を移す(打牌イベントを待たない)
+        this.setTurnIndicator(data.player);
         $('#center .sub .rest') && ($('#center .sub .rest').textContent = `残 ${data.remaining}`);
         return;
       case 'win': return this.showWin(data);
@@ -190,8 +200,12 @@ class UI {
     splash.classList.add('hidden');
   }
 
+  setTurnIndicator(player) {
+    for (let p = 0; p < 4; p++) $(`#chip-${p}`).classList.toggle('active', p === player);
+  }
+
   // --- 吹き出し ---
-  async showCallout(player, text) {
+  async showCallout(player, text, ms = 750) {
     const el = $('#callout');
     el.textContent = text;
     // 席の方向に出す (0=下,1=右,2=上,3=左)
@@ -203,7 +217,7 @@ class UI {
     ][player];
     Object.assign(el.style, { left: pos.left, top: pos.top, transform: pos.transform });
     el.classList.remove('hidden');
-    await sleep(750);
+    await sleep(ms);
     el.classList.add('hidden');
   }
 
@@ -267,19 +281,28 @@ class UI {
     for (const m of state.players[0].melds) myMelds.appendChild(meldEl(m));
   }
 
+  // 打牌は二段タッチ: 1タッチ目で牌が浮き、同じ牌への2タッチ目で確定。別の牌を触ると浮きが移る
   renderHand(selectable = false, riichiFilter = null, onPick = null) {
     const box = $('#my-hand');
     box.innerHTML = '';
+    let lifted = -1;
+    const els = [];
     const all = this.myDrawn ? [...this.myHand, this.myDrawn] : [...this.myHand];
     all.forEach((t, i) => {
       const el = tileEl(t);
+      els.push(el);
       if (this.myDrawn && i === all.length - 1) el.classList.add('drawn');
       if (selectable) {
         const allowed = !riichiFilter || riichiFilter.includes(i);
         if (allowed) {
           el.classList.add('selectable');
           el.classList.toggle('riichi-ok', !!riichiFilter);
-          el.onclick = () => onPick(i);
+          el.onclick = () => {
+            if (lifted === i) { onPick(i); return; }   // 2タッチ目 → 打牌
+            if (lifted >= 0) els[lifted].classList.remove('lifted');
+            lifted = i;
+            el.classList.add('lifted');                 // 1タッチ目 → 浮かせる
+          };
         } else {
           el.classList.add('dimmed');
         }
@@ -298,7 +321,18 @@ class UI {
       bar.innerHTML = '';
       let riichiMode = false;
 
-      const finish = (result) => { bar.innerHTML = ''; self.renderHand(false); resolve(result); };
+      // 打牌確定と同時に手牌から即座に消す(エンジンの反映を待たない)
+      const finish = (result) => {
+        bar.innerHTML = '';
+        if (result.action === 'discard') {
+          const all = self.myDrawn ? [...self.myHand, self.myDrawn] : [...self.myHand];
+          all.splice(result.index, 1);
+          self.myHand = all;
+          self.myDrawn = null;
+        }
+        self.renderHand(false);
+        resolve(result);
+      };
       const normalPick = () => self.renderHand(true, null, (i) => finish({ action: 'discard', index: i, riichi: false }));
       normalPick();
 

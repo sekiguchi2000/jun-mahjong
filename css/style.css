@@ -176,8 +176,11 @@ body {
   font-size: min(17px, calc((100vw - 44px) / 28));
 }
 #my-hand .tile.drawn { margin-left: 8px; }
-#my-hand .tile.selectable { cursor: pointer; }
-#my-hand .tile.selectable:active { transform: translateY(-6px); }
+#my-hand .tile.selectable { cursor: pointer; transition: transform .09s ease-out; }
+#my-hand .tile.lifted {
+  transform: translateY(calc(-12 * var(--k)));
+  box-shadow: 0 calc(6 * var(--k)) calc(10 * var(--k)) rgba(0,0,0,.5);
+}
 #my-hand .tile.dimmed { opacity: .35; }
 #my-hand .tile.riichi-ok { outline: 2px solid #ffcf40; outline-offset: -1px; }
 

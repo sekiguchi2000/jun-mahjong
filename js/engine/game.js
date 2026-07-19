@@ -150,7 +150,7 @@ export class Game {
         st.kanCount++;
         for (const q of st.players) q.ippatsu = false;
         st.firstGoAround = false;
-        this.onEvent('kan', { player: p, kind, kanCount: st.kanCount, state: this.publicState() });
+        await this.onEvent('kan', { player: p, kind, kanCount: st.kanCount, state: this.publicState() });
         if (st.kanCount > 4 || (st.kanCount === 4 && R.tochuRyukyoku &&
             new Set(st.players.flatMap((q, i) => q.melds.filter(m => m.type.includes('kan')).map(() => i))).size > 1)) {
           return await this.ryukyoku(true); // 四槓散了
@@ -216,7 +216,7 @@ export class Game {
           }
           q.melds.push({ type: 'chi', tiles: [...taken, curTile], from: curDiscarder });
         }
-        this.onEvent('claim', { player: curClaim.player, action: curClaim.action, tile: curTile, state: this.publicState() });
+        await this.onEvent('claim', { player: curClaim.player, action: curClaim.action, tile: curTile, state: this.publicState() });
         st.turn = curClaim.player;
         st.turnCount++;
         if (curClaim.action === 'minkan') {
